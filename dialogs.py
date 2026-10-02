@@ -180,20 +180,21 @@ class ProjectManagerDialog(QDialog):
 
     def _create_action_buttons(self):
         actions = [
-            ("new_btn", self.translator._("&New"), self.on_new, self.translator._("New")),
-            ("open_btn", self.translator._("&Open"), self.on_open, self.translator._("Open")),
-            ("pin_btn", self.translator._("&Pin ⭐"), self.on_pin, self.translator._("Pin")),
-            ("up_btn", self.translator._("Move &Up"), lambda: self.on_move(-1), self.translator._("Move Up")),
-            ("down_btn", self.translator._("Move &Down"), lambda: self.on_move(1), self.translator._("Move Down")),
-            ("rename_btn", self.translator._("&Rename"), self.on_rename, self.translator._("Rename")),
-            ("notepad_btn", self.translator._("Note&pad"), self.on_notepad, self.translator._("Notepad")),
-            ("delete_btn", self.translator._("&Delete"), self.on_delete, self.translator._("Delete")),
-            ("close_btn", self.translator._("&Close"), self.reject, self.translator._("Close")),
+            ("new_btn", self.translator._("&New"), self.on_new),
+            ("open_btn", self.translator._("&Open"), self.on_open),
+            ("pin_btn", self.translator._("&Pin ⭐"), self.on_pin),
+            ("up_btn", self.translator._("Move &Up"), lambda: self.on_move(-1)),
+            ("down_btn", self.translator._("Move &Down"), lambda: self.on_move(1)),
+            ("rename_btn", self.translator._("&Rename"), self.on_rename),
+            ("notepad_btn", self.translator._("Note&pad"), self.on_notepad),
+            ("delete_btn", self.translator._("&Delete"), self.on_delete),
+            ("close_btn", self.translator._("&Close"), self.reject),
         ]
         self.buttons = []
-        for attr_name, label, slot, acc_name in actions:
+        for attr_name, label, slot in actions:
             btn = QPushButton(label, self)
-            btn.setAccessibleName(acc_name)
+            # Drop the star so screen readers do not announce the emoji.
+            btn.setAccessibleName(label.replace("&", "").replace("⭐", "").strip())
             btn.clicked.connect(slot)
             setattr(self, attr_name, btn)
             self.buttons.append(btn)
@@ -280,9 +281,7 @@ class ProjectManagerDialog(QDialog):
     def _apply_rename(self, old_filename: str, new_name: str):
         renamed = self.workspace.rename_project(old_filename, new_name)
         if renamed:
-            if self.parent_window and hasattr(
-                self.parent_window, "on_project_renamed"
-            ):
+            if self.parent_window and hasattr(self.parent_window, "on_project_renamed"):
                 self.parent_window.on_project_renamed(old_filename, renamed)
             self.refresh_list()
 
@@ -306,9 +305,7 @@ class ProjectManagerDialog(QDialog):
 
     def _apply_delete(self, filename: str):
         if self.workspace.delete_project(filename):
-            if self.parent_window and hasattr(
-                self.parent_window, "on_project_deleted"
-            ):
+            if self.parent_window and hasattr(self.parent_window, "on_project_deleted"):
                 self.parent_window.on_project_deleted(filename)
             self.refresh_list()
 
@@ -352,9 +349,7 @@ class SettingsDialog(QDialog):
         self.confirm_delete_cb = QCheckBox(
             self.translator._("Confirm on &delete"), self
         )
-        self.confirm_delete_cb.setAccessibleName(
-            self.translator._("Confirm on delete")
-        )
+        self.confirm_delete_cb.setAccessibleName(self.translator._("Confirm on delete"))
         delete_val = self.settings.get("behavior", "confirm_on_delete", True)
         self.confirm_delete_cb.setChecked(delete_val)
 
@@ -437,9 +432,7 @@ class SettingsDialog(QDialog):
         self.settings.set(
             "behavior", "confirm_on_delete", self.confirm_delete_cb.isChecked()
         )
-        self.settings.set(
-            "behavior", "auto_save_interval", self.auto_save_spin.value()
-        )
+        self.settings.set("behavior", "auto_save_interval", self.auto_save_spin.value())
         lang = "ar" if self.lang_choice.currentIndex() == 1 else "en"
         self.settings.set("general", "language", lang)
         self.settings.save()

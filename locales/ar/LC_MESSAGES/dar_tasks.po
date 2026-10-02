@@ -238,3 +238,18 @@ msgstr "خطأ"
 
 msgid "Info"
 msgstr "معلومات"
+
+msgid "Filter tasks in current project"
+msgstr "تصفية مهام المشروع الحالي"
+
+msgid "Project tasks list"
+msgstr "قائمة مهام المشروع"
+
+msgid "Enter new task title"
+msgstr "أدخل عنوان المهمة الجديدة"
+
+msgid "Projects Tabs"
+msgstr "تبويبات المشاريع"
+
+msgid "Project notebook tabs"
+msgstr "ألسنة دفتر المشاريع"

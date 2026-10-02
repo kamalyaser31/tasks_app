@@ -8,7 +8,7 @@ import getpass
 from pathlib import Path
 import sys
 
-from PySide6.QtCore import QEvent, QPoint, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
@@ -53,6 +53,22 @@ def copy_to_clipboard(text: str) -> bool:
     return False
 
 
+class ButtonEnterKeyFilter(QObject):
+    """Event filter allowing Return/Enter key to trigger focused QPushButton."""
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.KeyPress and event.key() in (
+            Qt.Key.Key_Return,
+            Qt.Key.Key_Enter,
+        ):
+            if isinstance(obj, QPushButton):
+                # Swallow auto-repeat so holding Enter fires the button once.
+                if not event.isAutoRepeat():
+                    obj.click()
+                return True
+        return super().eventFilter(obj, event)
+
+
 class AccessibleTaskListWidget(QListWidget):
     """Accessible list widget handling Return/Enter keys for task actions."""
 
@@ -91,7 +107,6 @@ class TaskProjectWidget(QWidget):
             self.update_display()
         self._setup_auto_save()
 
-
     def _init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
@@ -100,43 +115,51 @@ class TaskProjectWidget(QWidget):
         self._setup_add_row(layout)
         QWidget.setTabOrder(self.search_input, self.task_list)
         QWidget.setTabOrder(self.task_list, self.new_task_input)
+        self.retranslate_ui()
 
     def _setup_filter_row(self, parent_layout: QVBoxLayout):
         row = QHBoxLayout()
-        lbl = QLabel(f"&{self.translator._('filter')}", self)
+        self.filter_lbl = QLabel(self)
         self.search_input = QLineEdit(self)
-        self.search_input.setAccessibleName("Filter")
-        self.search_input.setAccessibleDescription("Filter tasks in current project")
-        lbl.setBuddy(self.search_input)
+        self.filter_lbl.setBuddy(self.search_input)
         self.search_input.textChanged.connect(self.update_display)
-        row.addWidget(lbl)
+        row.addWidget(self.filter_lbl)
         row.addWidget(self.search_input)
         parent_layout.addLayout(row)
 
     def _setup_task_list(self, parent_layout: QVBoxLayout):
-        lbl = QLabel(f"&{self.translator._('tasks')}", self)
+        self.tasks_lbl = QLabel(self)
         self.task_list = AccessibleTaskListWidget(
             lambda: self.dispatch_command("archive"), self
         )
-        self.task_list.setAccessibleName("Tasks")
-        self.task_list.setAccessibleDescription("Project tasks list")
-        lbl.setBuddy(self.task_list)
+        self.tasks_lbl.setBuddy(self.task_list)
         self.task_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.task_list.customContextMenuRequested.connect(self.on_context_menu)
-        parent_layout.addWidget(lbl)
+        parent_layout.addWidget(self.tasks_lbl)
         parent_layout.addWidget(self.task_list, 1)
 
     def _setup_add_row(self, parent_layout: QVBoxLayout):
         row = QHBoxLayout()
-        lbl = QLabel(f"&{self.translator._('add')}", self)
+        self.add_lbl = QLabel(self)
         self.new_task_input = QLineEdit(self)
-        self.new_task_input.setAccessibleName("Add Task")
-        self.new_task_input.setAccessibleDescription("Enter new task title")
-        lbl.setBuddy(self.new_task_input)
+        self.add_lbl.setBuddy(self.new_task_input)
         self.new_task_input.returnPressed.connect(self.on_add_task)
-        row.addWidget(lbl)
+        row.addWidget(self.add_lbl)
         row.addWidget(self.new_task_input)
         parent_layout.addLayout(row)
+
+    def retranslate_ui(self):
+        self.translator.setup_translations()
+        _ = self.translator._
+        self.filter_lbl.setText(f"&{_('filter')}")
+        self.search_input.setAccessibleName(_("Filter"))
+        self.search_input.setAccessibleDescription(_("Filter tasks in current project"))
+        self.tasks_lbl.setText(f"&{_('tasks')}")
+        self.task_list.setAccessibleName(_("Tasks"))
+        self.task_list.setAccessibleDescription(_("Project tasks list"))
+        self.add_lbl.setText(f"&{_('add')}")
+        self.new_task_input.setAccessibleName(_("Add Task"))
+        self.new_task_input.setAccessibleDescription(_("Enter new task title"))
 
     def _setup_auto_save(self):
         sec = (
@@ -166,7 +189,9 @@ class TaskProjectWidget(QWidget):
             self.task_list.addItem(text)
 
     def _confirm(self, msg_key: str, setting_key: str, default_val: bool) -> bool:
-        if self.settings and not self.settings.get("behavior", setting_key, default_val):
+        if self.settings and not self.settings.get(
+            "behavior", setting_key, default_val
+        ):
             return True
         btn = QMessageBox.question(
             self,
@@ -289,7 +314,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Dar Tasks")
         self.resize(800, 600)
         self.single_instance_server = None
+        self._btn_filter = ButtonEnterKeyFilter(self)
+        app = QApplication.instance()
+        if app:
+            app.installEventFilter(self._btn_filter)
         self._init_workspace(base_dir)
+        self._apply_layout_direction()
         self._init_ui()
         self._setup_shortcuts()
         self.load_all_projects()
@@ -316,22 +346,60 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(5, 5, 5, 5)
         self._setup_toolbar(layout)
         self.notebook = QTabWidget(central_widget)
-        self.notebook.setAccessibleName("Projects Tabs")
-        self.notebook.setAccessibleDescription("Project notebook tabs")
+        self.notebook.setAccessibleName(self.translator._("Projects Tabs"))
+        self.notebook.setAccessibleDescription(
+            self.translator._("Project notebook tabs")
+        )
         layout.addWidget(self.notebook, 1)
 
     def _setup_toolbar(self, parent_layout: QVBoxLayout):
         toolbar = QHBoxLayout()
-        tools = self._get_toolbar_actions()
-        for name, mnem, label, handler in tools:
-            btn = QPushButton(label, self)
-            btn.setToolTip(f"{name} (Alt+{mnem})")
-            btn.setAccessibleName(name)
-            btn.setAccessibleDescription(f"Opens {name}")
+        self.toolbar_buttons = []
+        for name, mnem, _, handler in self._get_toolbar_actions():
+            btn = QPushButton(self)
             btn.setShortcut(QKeySequence(f"Alt+{mnem}"))
             btn.clicked.connect(handler)
+            self.toolbar_buttons.append((btn, name, mnem))
             toolbar.addWidget(btn)
         parent_layout.addLayout(toolbar)
+        self._update_toolbar_translations()
+
+    def _update_toolbar_translations(self):
+        actions = self._get_toolbar_actions()
+        for (btn, _, mnem), (_, _, label, _) in zip(self.toolbar_buttons, actions):
+            clean = label.replace("&", "")
+            btn.setText(label)
+            btn.setToolTip(f"{clean} (Alt+{mnem})")
+            btn.setAccessibleName(clean)
+            btn.setAccessibleDescription("")
+
+    def _apply_layout_direction(self):
+        app = QApplication.instance()
+        if app:
+            is_ar = self.translator.lang == "ar"
+            direction = (
+                Qt.LayoutDirection.RightToLeft
+                if is_ar
+                else Qt.LayoutDirection.LeftToRight
+            )
+            app.setLayoutDirection(direction)
+
+    def _retranslate_tabs(self):
+        for i in range(self.notebook.count()):
+            page = self.notebook.widget(i)
+            if isinstance(page, TaskProjectWidget):
+                title = get_project_display_name(page.filename.name, self.translator)
+                self.notebook.setTabText(i, title)
+                page.retranslate_ui()
+
+    def retranslate_ui(self):
+        self.translator.setup_translations()
+        self._apply_layout_direction()
+        self._update_toolbar_translations()
+        self._retranslate_tabs()
+        _ = self.translator._
+        self.notebook.setAccessibleName(_("Projects Tabs"))
+        self.notebook.setAccessibleDescription(_("Project notebook tabs"))
 
     def _get_toolbar_actions(self):
         return self._get_primary_actions() + self._get_secondary_actions()
@@ -399,13 +467,10 @@ class MainWindow(QMainWindow):
     def _add_new_project_tab(self, filename: str):
         path = self.workspace.get_project_path(filename)
         if path.exists():
-            page = TaskProjectWidget(
-                self.notebook, path, self.settings, self.base_dir
-            )
+            page = TaskProjectWidget(self.notebook, path, self.settings, self.base_dir)
             title = get_project_display_name(filename, self.translator)
             self.notebook.addTab(page, title)
             self.notebook.setCurrentIndex(self.notebook.count() - 1)
-
 
     def on_project_renamed(self, old_fn: str, new_fn: str):
         old_p = self.workspace.get_project_path(old_fn).resolve()
@@ -423,7 +488,10 @@ class MainWindow(QMainWindow):
         p_path = self.workspace.get_project_path(filename).resolve()
         for i in range(self.notebook.count()):
             page = self.notebook.widget(i)
-            if isinstance(page, TaskProjectWidget) and page.filename.resolve() == p_path:
+            if (
+                isinstance(page, TaskProjectWidget)
+                and page.filename.resolve() == p_path
+            ):
                 page.model.has_unsaved_changes = False
                 page.timer.stop()
                 self.notebook.removeTab(i)
@@ -506,8 +574,11 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Info", self.translator._("no_arch"))
 
     def on_settings(self):
-        if self._show_dialog(SettingsDialog, self.settings) == QDialog.DialogCode.Accepted:
-            self.translator.setup_translations()
+        if (
+            self._show_dialog(SettingsDialog, self.settings)
+            == QDialog.DialogCode.Accepted
+        ):
+            self.retranslate_ui()
 
     def changeEvent(self, event: QEvent):
         if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
@@ -542,18 +613,18 @@ class MainWindow(QMainWindow):
         event.accept()
 
 
-def setup_single_instance(app, main_window) -> bool:
+def setup_single_instance(app, main_window, socket_name: str | None = None) -> bool:
     """Setup single instance via QLocalServer / QLocalSocket."""
-    socket_name = f"DarTasksSingleInstance-{getpass.getuser()}"
+    name = socket_name or f"DarTasksSingleInstance-{getpass.getuser()}"
     socket = QLocalSocket()
-    socket.connectToServer(socket_name)
+    socket.connectToServer(name)
     if socket.waitForConnected(500):
         socket.write(b"ACTIVATE\n")
         socket.flush()
         socket.waitForBytesWritten(500)
         socket.disconnectFromServer()
         return False
-    return _start_single_instance_server(main_window, socket_name)
+    return _start_single_instance_server(main_window, name)
 
 
 def _start_single_instance_server(main_window, socket_name: str) -> bool:
@@ -561,7 +632,9 @@ def _start_single_instance_server(main_window, socket_name: str) -> bool:
     server = QLocalServer(main_window)
     if not server.listen(socket_name):
         return True
-    server.newConnection.connect(lambda: _handle_instance_connection(server, main_window))
+    server.newConnection.connect(
+        lambda: _handle_instance_connection(server, main_window)
+    )
     main_window.single_instance_server = server
     return True
 
@@ -577,7 +650,8 @@ def _handle_instance_connection(server: QLocalServer, main_window):
 
 def _bring_window_to_front(win):
     win.setWindowState(
-        win.windowState() & ~Qt.WindowState.WindowMinimized | Qt.WindowState.WindowActive
+        win.windowState() & ~Qt.WindowState.WindowMinimized
+        | Qt.WindowState.WindowActive
     )
     win.showNormal()
     win.raise_()

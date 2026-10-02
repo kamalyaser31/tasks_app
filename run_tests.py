@@ -1082,15 +1082,14 @@ class TestPySide6MainWindow(unittest.TestCase):
     def test_single_instance_logic(self):
         from tasks_app import MainWindow, setup_single_instance
         from PySide6.QtNetwork import QLocalSocket
-        import getpass
 
+        sock_name = f"DarTasksTestSocket-{os.getpid()}"
         win = MainWindow(base_dir=self.test_dir)
-        is_primary = setup_single_instance(self.app, win)
+        is_primary = setup_single_instance(self.app, win, socket_name=sock_name)
         self.assertTrue(is_primary)
         self.assertIsNotNone(win.single_instance_server)
 
         # Secondary instance attempts to connect
-        sock_name = f"DarTasksSingleInstance-{getpass.getuser()}"
         client = QLocalSocket()
         client.connectToServer(sock_name)
         self.assertTrue(client.waitForConnected(1000))

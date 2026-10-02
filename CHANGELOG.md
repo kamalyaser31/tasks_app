@@ -1,5 +1,8 @@
 # Changelog
 
+## [2026-10-02]
+- feat(a11y-i18n): live UI retranslation on settings save, Enter activates focused buttons, RTL layout for Arabic, and QtNetwork restored to the PyInstaller build (PR #1 by HAMZA-collab620).
+
 ## [2026-09-21]
 - refactor(gui): complete migration from wxPython to PySide6 (Qt 6) across presentation layer and dialogs with full WCAG 2.1 AA accessibility.
 - feat(dialogs): migrate GlobalSearchDialog, ProjectManagerDialog, and SettingsDialog to PySide6 with accessible names, descriptions, and setBuddy keyboard mnemonics.
